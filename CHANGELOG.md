@@ -15,6 +15,15 @@ All notable changes to payflow-frontend. The format follows
 
 ### Added
 
+- **Per-page titles, descriptions and social previews.** Every route carries its
+  own title, description, canonical link and Open Graph card, and each page has a
+  1200×630 share image drawn at build time. The images are written to
+  `public/og/<page>.png` rather than served by Next's image route, because that
+  route writes a file without an extension and GitHub Pages then serves it as
+  `application/octet-stream`, which the preview crawlers refuse. The page list
+  lives in `src/lib/pages.json`, so an image cannot drift from the page it
+  belongs to.
+
 - Subscribe cards show optional availability cutoffs and remaining seats, and
   reject expired/full plans before signing. Unlimited/legacy plans stay unchanged.
   Built against payflow-contract#26 (`available_until`, Unix seconds; 0 forever)

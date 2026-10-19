@@ -7,3 +7,6 @@ build/
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+
+# Drawn by scripts/generate-og.mjs before every build.
+public/og/
