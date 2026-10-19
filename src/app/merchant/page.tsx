@@ -6,7 +6,17 @@ import { chainMandatesFor, chainMerchantSummary, chainPlansOf, endable } from "@
 import { config } from "@/lib/config";
 import { MAX_NAME_LEN, nameByteLength, payflow } from "@/lib/payflow";
 import { useWallet } from "@/lib/wallet";
-import { formatPeriod, formatWhen, fromStroops, toStroops } from "@/lib/format";
+import {
+  checkAmount,
+  feeSplit,
+  formatAmount,
+  formatFeeBps,
+  formatPeriod,
+  formatWhen,
+  fromStroops,
+  type FeeSplit,
+  type TokenMeta,
+} from "@/lib/format";
 import { metaFor, useTokenMetas } from "@/lib/token";
 import { AddressLink, Badge, Empty, Notice, Panel, SkeletonRows, Stat, TxLink } from "@/components/ui";
 
@@ -18,21 +28,45 @@ const PERIOD_OPTIONS = [
   { label: "Yearly", value: 31_536_000 },
 ];
 
+/**
+ * "subscriber pays X, you receive Y after the Z% fee".
+ *
+ * All three figures come from one bigint split in the token's own scale, so
+ * the net shown here is exactly what `charge` credits to the merchant — never
+ * a percentage of a rounded display string.
+ */
+function FeePreview({
+  split,
+  feeBps,
+  meta,
+}: {
+  split: FeeSplit;
+  feeBps: number;
+  meta: TokenMeta;
+}) {
+  return (
+    <span>
+      Subscriber pays {formatAmount(split.gross, meta)} · protocol fee{" "}
+      {formatAmount(split.fee, meta)} ({formatFeeBps(feeBps)}) · you receive{" "}
+      {formatAmount(split.net, meta)}.
+    </span>
+  );
+}
+
 export default function MerchantPage() {
   const { address, networkMismatch, signXdr } = useWallet();
   const [plans, setPlans] = useState<ApiPlan[] | null>(null);
   const [mandates, setMandates] = useState<ApiMandate[] | null>(null);
   const [summary, setSummary] = useState<MerchantSummary | null>(null);
+  const [feeBps, setFeeBps] = useState<number | null>(null);
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [priceTouched, setPriceTouched] = useState(false);
   const [period, setPeriod] = useState(2_592_000);
   const [busy, setBusy] = useState<string | null>(null);
   // Ending is permanent, so the End button asks for a second click.
   const [confirmEnd, setConfirmEnd] = useState<number | null>(null);
-  // The contract rejects a name over MAX_NAME_LEN bytes, so catch it here
-  // rather than letting the user pay for a transaction that will fail.
-  const nameTooLong = nameByteLength(name.trim()) > MAX_NAME_LEN;
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -43,6 +77,20 @@ export default function MerchantPage() {
     ...(mandates ?? []).map((m) => m.token ?? config.contracts.token),
   ]);
   const tokenMeta = metaFor(metas, config.contracts.token);
+
+  // The contract rejects a name over MAX_NAME_LEN bytes, so catch it here
+  // rather than letting the user pay for a transaction that will fail.
+  const nameTooLong = nameByteLength(name.trim()) > MAX_NAME_LEN;
+  // Same reasoning for the price: a bad one only fails once the wallet has
+  // already opened, so the form says so up front and keeps Publish disabled.
+  // The message waits for a first keystroke — an untouched empty field is not
+  // an error, and saying so the moment the page loads reads as an accusation.
+  // The field is checked against the publish token's decimals, not a hardcoded
+  // 7: a SEP-41 token picks its own scale.
+  const priceCheck = checkAmount(price, tokenMeta.decimals);
+  const priceError = priceCheck.ok ? null : priceCheck.message;
+  const showPriceError = priceError !== null && (priceTouched || price.trim() !== "");
+  const split = priceCheck.ok ? feeSplit(priceCheck.stroops, feeBps ?? 0) : null;
 
   const load = useCallback(async () => {
     if (!address) return;
@@ -80,6 +128,23 @@ export default function MerchantPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Read once per wallet, not on every reload: the protocol fee only moves
+  // when an admin changes it, and this is a preview rather than a gate — if the
+  // read fails the form still publishes, it just shows a 0% split.
+  useEffect(() => {
+    if (!address) return;
+    let live = true;
+    void payflow
+      .feeBps(address)
+      .then((bps) => {
+        if (live && Number.isFinite(bps)) setFeeBps(bps);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [address]);
 
   async function run(key: string, fn: () => Promise<string>) {
     setBusy(key);
@@ -146,11 +211,17 @@ export default function MerchantPage() {
             </label>
             <input
               id="price"
-              className="input"
+              className={`input ${showPriceError ? "border-rose-500/60 focus:border-rose-500/60" : ""}`}
               inputMode="decimal"
               placeholder="1.0"
               value={price}
-              onChange={(e) => setPrice(e.target.value)}
+              onChange={(e) => {
+                setPrice(e.target.value);
+                setPriceTouched(true);
+              }}
+              onBlur={() => setPriceTouched(true)}
+              aria-invalid={showPriceError}
+              aria-describedby="price-preview"
             />
           </div>
           <div className="min-w-[12rem] flex-1">
@@ -192,21 +263,38 @@ export default function MerchantPage() {
           <button
             type="button"
             className="btn-primary"
-            disabled={busy !== null || networkMismatch || nameTooLong}
-            onClick={() =>
+            disabled={busy !== null || networkMismatch || nameTooLong || !priceCheck.ok}
+            onClick={() => {
+              // Publish the amount the form already parsed rather than reading
+              // the field again: a half-typed "1." passes `checkAmount` but
+              // `toStroops` rejects, so re-parsing here would throw on a
+              // click the form had just said was fine.
+              if (!priceCheck.ok) return;
               void run("create", () =>
                 payflow.createPlan(address, signXdr, {
                   token: config.contracts.token,
-                  amount: toStroops(price, tokenMeta.decimals),
+                  amount: priceCheck.stroops,
                   period,
                   name: name.trim(),
                 }),
-              )
-            }
+              );
+            }}
           >
             {busy === "create" ? "Publishing…" : "Publish plan"}
           </button>
         </div>
+
+        <p
+          id="price-preview"
+          aria-live="polite"
+          className={showPriceError ? "mt-3 text-sm text-rose-200" : "mt-3 text-sm text-muted"}
+        >
+          {showPriceError
+            ? priceError
+            : (split ? (
+                <FeePreview split={split} feeBps={feeBps ?? 0} meta={tokenMeta} />
+              ) : null)}
+        </p>
       </Panel>
 
       <Panel title="My plans">

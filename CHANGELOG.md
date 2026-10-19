@@ -6,8 +6,19 @@ All notable changes to payflow-frontend. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The publish form accepted any text as a price** and only failed once the
+  transaction was simulated, so a merchant paid for a failed attempt. The
+  price is validated inline — positive, at most 7 decimal places — and Publish
+  stays disabled with a message until it is usable.
+
 ### Added
 
+- **Fee split preview on the publish form.** "Subscriber pays X · protocol fee Y
+  (Z%) · you receive W", read live from the contract's `fee_bps` and computed in
+  bigint exactly as `charge` does. If the rate cannot be read the form still
+  works and previews a 0% split.
 - **Upcoming charges calendar.** The account page can download an `.ics` file
   containing the next charge of every active mandate, with a recurrence bounded
   by the mandate's charge cap. Works in contract-only mode because the file is

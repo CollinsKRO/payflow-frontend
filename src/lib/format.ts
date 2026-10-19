@@ -79,6 +79,98 @@ export function formatAmount(
   return `${fromStroops(raw, maxFractionDigits, meta.decimals)} ${meta.symbol}`;
 }
 
+/**
+ * What a form should say about the amount a merchant typed.
+ *
+ * `toStroops` throws, which is the right behaviour for a transaction path and
+ * the wrong one for a live form: a half-typed "1." must read as "keep going",
+ * not as a failure. This returns the reason instead so the field can disable
+ * the submit button and explain itself without a round trip through an
+ * exception.
+ */
+export type AmountCheck =
+  | { ok: true; stroops: bigint }
+  | { ok: false; message: string };
+
+/**
+ * Validate a user-typed amount without throwing.
+ *
+ * Accepts a partially typed number such as "1." — the trailing dot is what a
+ * numeric keypad leaves behind mid-entry — but rejects anything that could not
+ * be read back as a price: signs, exponents, thousands separators, letters.
+ * Zero is rejected because the contract's `InvalidAmount` rejects it too, and a
+ * merchant who discovers that on-chain has paid a fee for nothing.
+ *
+ * `decimals` matches `toStroops`: a SEP-41 token picks its own scale, so a
+ * 6-decimal token must be refused at the 7th place, not the 6th.
+ */
+export function checkAmount(input: string, decimals = DECIMALS): AmountCheck {
+  const places = normalizeDecimals(decimals);
+  const trimmed = input.trim();
+  if (trimmed === "") {
+    return { ok: false, message: "Enter an amount." };
+  }
+  if (!/^\d+(\.\d*)?$/.test(trimmed)) {
+    return { ok: false, message: "Enter a positive number, for example 2.5." };
+  }
+  const [whole = "0", frac = ""] = trimmed.split(".");
+  if (frac.length > places) {
+    return { ok: false, message: `At most ${places} decimal places.` };
+  }
+  const stroops = BigInt(whole) * 10n ** BigInt(places) + BigInt(frac.padEnd(places, "0") || "0");
+  if (stroops <= 0n) {
+    return { ok: false, message: "Amount must be greater than zero." };
+  }
+  return { ok: true, stroops };
+}
+
+/** Basis points in a percent. Mirrors BPS_DENOMINATOR in the subscription contract. */
+export const BPS_DENOMINATOR = 10_000n;
+
+/** Mirrors MAX_FEE_BPS in the subscription contract: at most 10%. */
+export const MAX_FEE_BPS = 1_000;
+
+export interface FeeSplit {
+  /** What the subscriber is charged, in the token's smallest unit. */
+  gross: bigint;
+  /** The protocol's cut, also debited from the subscriber's vault. */
+  fee: bigint;
+  /** What reaches the merchant. `gross - fee`, exactly as the contract computes it. */
+  net: bigint;
+}
+
+/**
+ * Split an amount the way `charge` does in the subscription contract:
+ * `fee = amount * fee_bps / 10_000` in integer division, then
+ * `merchant_amount = amount - fee`.
+ *
+ * All three are bigint. Multiplying a stroop amount by a percent in floating
+ * point is how a preview ends up promising a tenth of a stroop more than the
+ * contract pays out — and a merchant who reconciles against the chain would see
+ * it on the very first charge.
+ *
+ * The rate is clamped to `[0, MAX_FEE_BPS]`, the range the contract's
+ * `set_fee_bps` accepts. A malformed value from a stale API or a bad read would
+ * otherwise produce a negative payout in a preview that is supposed to
+ * reassure.
+ */
+export function feeSplit(amount: bigint, feeBps: number): FeeSplit {
+  const bps = Number.isFinite(feeBps)
+    ? BigInt(Math.min(MAX_FEE_BPS, Math.max(0, Math.trunc(feeBps))))
+    : 0n;
+  const fee = (amount * bps) / BPS_DENOMINATOR;
+  return { gross: amount, fee, net: amount - fee };
+}
+
+/** A basis-point rate as a readable percentage, e.g. 100 → "1%", 250 → "2.5%". */
+export function formatFeeBps(feeBps: number): string {
+  if (!Number.isFinite(feeBps) || feeBps <= 0) return "0%";
+  const scaled = (feeBps * 100) / 10_000;
+  // Basis points are integers, so the fraction is always exact in decimal.
+  const text = scaled.toFixed(2).replace(/\.?0+$/, "");
+  return `${text}%`;
+}
+
 const PERIODS: Array<[string, number]> = [
   ["minute", 60],
   ["hour", 3_600],
