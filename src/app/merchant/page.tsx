@@ -18,6 +18,7 @@ import {
   type TokenMeta,
 } from "@/lib/format";
 import { metaFor, useTokenMetas } from "@/lib/token";
+import { supportsTrials, trialBadge, TRIAL_OPTIONS } from "@/lib/trial";
 import { AddressLink, Badge, Empty, Notice, Panel, SkeletonRows, Stat, TxLink } from "@/components/ui";
 
 const PERIOD_OPTIONS = [
@@ -64,6 +65,7 @@ export default function MerchantPage() {
   const [price, setPrice] = useState("");
   const [priceTouched, setPriceTouched] = useState(false);
   const [period, setPeriod] = useState(2_592_000);
+  const [trial, setTrial] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   // Ending is permanent, so the End button asks for a second click.
   const [confirmEnd, setConfirmEnd] = useState<number | null>(null);
@@ -91,6 +93,7 @@ export default function MerchantPage() {
   const priceError = priceCheck.ok ? null : priceCheck.message;
   const showPriceError = priceError !== null && (priceTouched || price.trim() !== "");
   const split = priceCheck.ok ? feeSplit(priceCheck.stroops, feeBps ?? 0) : null;
+  const trialSupported = (plans ?? []).some(supportsTrials);
 
   const load = useCallback(async () => {
     if (!address) return;
@@ -260,6 +263,26 @@ export default function MerchantPage() {
               ))}
             </select>
           </div>
+          {trialSupported && (
+            <div className="min-w-[10rem] flex-1">
+              <label className="label" htmlFor="trial">
+                Free trial
+              </label>
+              <select
+                id="trial"
+                className="input"
+                value={trial}
+                onChange={(e) => setTrial(Number(e.target.value))}
+              >
+                <option value={0}>None</option>
+                {TRIAL_OPTIONS.map((o) => (
+                  <option key={o.seconds} value={o.seconds}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button
             type="button"
             className="btn-primary"
@@ -276,6 +299,10 @@ export default function MerchantPage() {
                   amount: priceCheck.stroops,
                   period,
                   name: name.trim(),
+                  // Omitted, not zeroed, when unsupported: the deployed
+                  // contract's create_plan takes five arguments and a sixth
+                  // would fail every publish.
+                  ...(trialSupported ? { trial } : {}),
                 }),
               );
             }}
@@ -315,6 +342,11 @@ export default function MerchantPage() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{p.name || `Plan #${p.id}`}</span>
                       <Badge status={p.active ? "Active" : "Paused"} />
+                      {trialBadge(p) && (
+                        <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">
+                          {trialBadge(p)}
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1 text-sm text-muted">
                       {fromStroops(p.amount, 4, meta.decimals)} {meta.symbol}{" "}

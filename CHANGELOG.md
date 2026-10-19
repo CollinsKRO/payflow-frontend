@@ -15,6 +15,11 @@ All notable changes to payflow-frontend. The format follows
 
 ### Added
 
+- **Free trials on plans.** A "N-day free trial" badge on plan cards, the date a
+  subscriber's trial ends on the account page, and a trial length in the
+  subscribe confirmation. Built against the interface proposed in
+  payflow-contract#9 and hidden entirely — including the merchant's control —
+  while the deployed contract cannot carry the field.
 - **Fee split preview on the publish form.** "Subscriber pays X · protocol fee Y
   (Z%) · you receive W", read live from the contract's `fee_bps` and computed in
   bigint exactly as `charge` does. If the rate cannot be read the form still

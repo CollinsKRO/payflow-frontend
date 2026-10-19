@@ -198,9 +198,48 @@ export function shortAddress(address: string, size = 4): string {
   return `${address.slice(0, size)}…${address.slice(-size)}`;
 }
 
-export function formatWhen(unixSeconds: number): string {
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/**
+ * A calendar date, e.g. "22 Nov 2026".
+ *
+ * Built from the timestamp's UTC fields with fixed English month names rather
+ * than `toLocaleDateString`. The pages are prerendered on a server that is not
+ * necessarily in the reader's timezone, so a locale-formatted date renders one
+ * way during the build and another after hydration. These pages are static
+ * exports: a mismatch there is a permanent console error, not a transient one.
+ */
+export function formatDate(unixSeconds: number): string {
   if (!unixSeconds) return "—";
-  const delta = unixSeconds * 1000 - Date.now();
+  const d = new Date(unixSeconds * 1000);
+  const month = MONTHS[d.getUTCMonth()] ?? "";
+  return `${d.getUTCDate()} ${month} ${d.getUTCFullYear()}`;
+}
+
+/**
+ * A rough "in 5m" / "3d ago" rendering of a timestamp.
+ *
+ * `nowMs` is injectable so a caller that already holds its own reference time —
+ * a test, or anything rendering a past instant — cannot have the two disagree.
+ * Without it, asking "is this in the future?" and then asking "how far?" can
+ * straddle a boundary and produce "Free trial ended 3 days ago (in 2h)".
+ */
+export function formatWhen(unixSeconds: number, nowMs: number = Date.now()): string {
+  if (!unixSeconds) return "—";
+  const delta = unixSeconds * 1000 - nowMs;
   const abs = Math.abs(delta);
   const mins = Math.round(abs / 60_000);
   if (mins < 1) return delta >= 0 ? "due now" : "just now";

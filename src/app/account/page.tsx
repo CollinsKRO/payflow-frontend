@@ -8,6 +8,7 @@ import { config } from "@/lib/config";
 import { payflow } from "@/lib/payflow";
 import { useWallet } from "@/lib/wallet";
 import { formatPeriod, formatWhen, fromStroops, toStroops } from "@/lib/format";
+import { describeTrialEnd } from "@/lib/trial";
 import { metaFor, useTokenMetas } from "@/lib/token";
 import {
   AddressLink,
@@ -215,6 +216,7 @@ export default function AccountPage() {
             {mandates.map((m) => {
               const terminal = m.status === "Cancelled" || m.status === "Completed";
               const meta = metaFor(metas, m.token ?? config.contracts.token);
+              const trial = describeTrialEnd(m);
               return (
                 <div key={m.id} className="rounded-lg border border-edge p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -222,6 +224,11 @@ export default function AccountPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium">Mandate #{m.id}</span>
                         <Badge status={m.status} />
+                        {trial && (
+                          <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">
+                            Free trial
+                          </span>
+                        )}
                         {m.ended_by === "merchant" && (
                           <span className="text-xs text-muted">ended by the merchant</span>
                         )}
@@ -236,6 +243,11 @@ export default function AccountPage() {
                         {" · next "}
                         {m.status === "Active" ? formatWhen(m.next_charge) : "—"}
                       </div>
+                      {trial && (
+                        <div className="mt-1 text-xs text-accent">
+                          {trial}. Cancel before then and you pay nothing.
+                        </div>
+                      )}
                     </div>
 
                     {!terminal && (
