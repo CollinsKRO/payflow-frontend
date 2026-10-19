@@ -110,5 +110,23 @@ export const api = {
     get<{ charges: ApiCharge[] }>(`/api/mandates/${mandateId}/charges`),
   merchantSummary: (address: string) =>
     get<MerchantSummary>(`/api/merchants/${address}/summary`),
+  /**
+   * Revenue over time, proposed by payflow-backend#12 and not deployed yet.
+   *
+   * Shape kept loose on purpose (`unknown`, not a declared interface) so the
+   * dashboard can tell "this backend does not serve the endpoint" from "this
+   * merchant earned nothing"; `parseRevenue` in `lib/revenue` does the reading.
+   */
+  merchantRevenue: (
+    address: string,
+    params: { bucket?: string; from?: number; to?: number } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (params.bucket) query.set("bucket", params.bucket);
+    if (params.from !== undefined) query.set("from", String(params.from));
+    if (params.to !== undefined) query.set("to", String(params.to));
+    const qs = query.toString();
+    return get<unknown>(`/api/merchants/${address}/revenue${qs ? `?${qs}` : ""}`);
+  },
   due: () => get<{ now: number; due: ApiMandate[] }>("/api/due"),
 };

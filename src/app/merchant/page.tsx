@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type ApiMandate, type ApiPlan, type MerchantSummary } from "@/lib/api";
+import { RevenueChart } from "@/components/RevenueChart";
 import { buildCsv, downloadCsv, exportFilename, type ChargeRow } from "@/lib/csv";
+import { fillBuckets, parseRevenue, type BucketSize, type RevenuePoint } from "@/lib/revenue";
 import { chainMandatesFor, chainMerchantSummary, chainPlansOf, endable, mandateFunding } from "@/lib/chain";
 import { config } from "@/lib/config";
 import { MAX_NAME_LEN, nameByteLength, payflow, server } from "@/lib/payflow";
@@ -29,6 +31,9 @@ const PERIOD_OPTIONS = [
   { label: "Monthly", value: 2_592_000 },
   { label: "Yearly", value: 31_536_000 },
 ];
+
+/** How far back the revenue chart looks, in days. */
+const REVENUE_WINDOW_DAYS = 90;
 
 /**
  * "subscriber pays X, you receive Y after the Z% fee".
@@ -64,6 +69,14 @@ export default function MerchantPage() {
   const [balances, setBalances] = useState<Record<string, bigint | null>>({});
   const [exporting, setExporting] = useState(false);
   const [feeBps, setFeeBps] = useState<number | null>(null);
+  const [bucketSize, setBucketSize] = useState<BucketSize>("day");
+  /**
+   * null while loading or when the backend cannot serve the endpoint; the
+   * chart is hidden with an explanation rather than drawn as an empty box, so
+   * "no data" and "no data source" never look the same.
+   */
+  const [revenue, setRevenue] = useState<RevenuePoint[] | null>(null);
+  const [revenueUnavailable, setRevenueUnavailable] = useState(false);
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -166,6 +179,39 @@ export default function MerchantPage() {
     };
   }, [address]);
 
+  /**
+   * Revenue over time, refetched when the granularity changes.
+   *
+   * 90 days covers a quarterly cycle, which is the longest window a daily
+   * series stays readable at this width; weekly covers a year in the same
+   * number of columns.
+   */
+  useEffect(() => {
+    if (!address) return;
+    let live = true;
+    const now = Math.floor(Date.now() / 1000);
+    const from = now - REVENUE_WINDOW_DAYS * 86_400;
+    setRevenueUnavailable(false);
+    void api
+      .merchantRevenue(address, { bucket: bucketSize, from, to: now })
+      .then((body) => {
+        if (!live) return;
+        const parsed = parseRevenue(body);
+        if (parsed === null) {
+          setRevenueUnavailable(true);
+          setRevenue(null);
+          return;
+        }
+        setRevenue(fillBuckets(parsed, bucketSize, from, now));
+      })
+      .catch(() => {
+        if (live) setRevenueUnavailable(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [address, bucketSize]);
+
   async function run(key: string, fn: () => Promise<string>) {
     setBusy(key);
     setError(null);
@@ -246,6 +292,40 @@ export default function MerchantPage() {
 
   return (
     <div className="space-y-6">
+      <Panel
+        title="Revenue over time"
+        subtitle={`Net of the protocol fee, over the last ${REVENUE_WINDOW_DAYS} days.`}
+        actions={
+          revenue !== null ? (
+            <label className="flex items-center gap-2 text-sm text-muted">
+              <span className="sr-only sm:not-sr-only">Group by</span>
+              <select
+                className="input w-auto py-1"
+                value={bucketSize}
+                onChange={(e) => setBucketSize(e.target.value as BucketSize)}
+              >
+                <option value="day">Day</option>
+                <option value="week">Week</option>
+              </select>
+            </label>
+          ) : undefined
+        }
+      >
+        {revenueUnavailable ? (
+          <Empty>
+            Revenue history comes from the payflow indexer, which is not reachable
+            here — so there is nothing to plot. The totals above still come from
+            contract state; only the time series needs the backend.
+          </Empty>
+        ) : revenue === null ? (
+          <SkeletonRows rows={2} label="Loading revenue" />
+        ) : revenue.length === 0 ? (
+          <Empty>No charges settled in this period.</Empty>
+        ) : (
+          <RevenueChart points={revenue} size={bucketSize} meta={tokenMeta} />
+        )}
+      </Panel>
+
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat
           label="Collected"

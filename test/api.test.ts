@@ -100,4 +100,20 @@ describe("api fail-soft behaviour", () => {
     expect(seenUrl).toContain("/api/plans?merchant=GABC");
     expect(seenCache).toBe("no-store");
   });
+
+  it("queries the revenue endpoint with bucket, from and to", async () => {
+    let seenUrl = "";
+    mockFetch(async (url) => {
+      seenUrl = String(url);
+      return jsonResponse({ buckets: [] });
+    });
+    await api.merchantRevenue("GABC", { bucket: "week", from: 1000, to: 2000 });
+    expect(seenUrl).toContain("/api/merchants/GABC/revenue?bucket=week&from=1000&to=2000");
+    expect(seenUrl).not.toContain("NaN");
+  });
+
+  it("returns null for revenue when the backend cannot serve it", async () => {
+    mockFetch(async () => jsonResponse({ error: "not found" }, 404, false));
+    expect(await api.merchantRevenue("GABC")).toBeNull();
+  });
 });
