@@ -13,7 +13,7 @@
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green"/>
 </p>
 
-> **Live demo:** https://mmm-pay.github.io/payflow-frontend/ ·
+> **Livedemo:** https://mmm-pay.github.io/payflow-frontend/ ·
 > **Docs:** https://mmm-pay.github.io/payflow-docs/
 
 ---
