@@ -7,6 +7,7 @@ import Link from "next/link";
 import { api, type ProtocolStats, type RecentCharge } from "@/lib/api";
 import { chainProtocolStats } from "@/lib/chain";
 import { config } from "@/lib/config";
+import { useNetwork } from "@/lib/network";
 import { AddressLink, Panel, Stat, TxLink } from "@/components/ui";
 import{ shortAddress } from "@/lib/format";
 import { metaFor, useTokenMetas } from "@/lib/token";
@@ -38,6 +39,7 @@ export default function HomePage() {
   const [loaded, setLoaded] = useState(false);
   const metas = useTokenMetas([config.contracts.token]);
   const tokenMeta = metaFor(metas, config.contracts.token);
+  const { network } = useNetwork();
 
   useEffect(() => {
     const load = async () => {
@@ -146,16 +148,25 @@ export default function HomePage() {
         </ol>
       </Panel>
 
-      <Panel title={tr("Deployed contracts")} subtitle={tr("Stellar testnet")}>
+      <Panel
+        title={tr("Deployed contracts")}
+        subtitle={tr(`Stellar ${network.label.toLowerCase()}`)}
+      >
         <dl className="space-y-3 text-sm">
           {[
-            ["Plan registry", config.contracts.planRegistry],
-            ["Vault", config.contracts.vault],
-            ["Subscription", config.contracts.subscription],
+            ["Plan registry", network.contracts.planRegistry],
+            ["Vault", network.contracts.vault],
+            ["Subscription", network.contracts.subscription],
           ].map(([label, id]) => (
             <div key={label} className="flex flex-wrap items-center justify-between gap-2">
               <dt className="text-muted">{typeof label === "string" ? tr(label) : label}</dt>
-              <dd>{id ? <AddressLink value={id} kind="contract" /> : <span className="text-muted">{tr("not configured")}</span>}</dd>
+              <dd>
+                {id ? (
+                  <AddressLink value={id} kind="contract" base={network.explorerBase} />
+                ) : (
+                  <span className="text-muted">{tr("not configured")}</span>
+                )}
+              </dd>
             </div>
           ))}
         </dl>
