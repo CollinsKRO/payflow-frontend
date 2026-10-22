@@ -242,7 +242,9 @@ export function Notice({ tone, children }: { tone: "error" | "ok" | "info"; chil
     info: "border-edge bg-fg/5 text-muted",
   } as const;
   return (
-    <div className={`rounded-lg border px-3 py-2 text-sm ${tones[tone]}`}>{typeof children === "string" ? translateMessage(children) : children}</div>
+    <div className={`rounded-lg border px-3 py-2 text-sm ${tones[tone]}`}>
+      {typeof children === "string" ? translateMessage(children) : children}
+    </div>
   );
 }
 
